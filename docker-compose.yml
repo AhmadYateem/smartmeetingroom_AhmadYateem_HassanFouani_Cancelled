@@ -1,0 +1,227 @@
+version: '3.8'
+
+services:
+  # Database - PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: smr_postgres
+    environment:
+      POSTGRES_DB: smartmeetingroom
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secure_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d smartmeetingroom"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smr_network
+
+  # Cache - Redis
+  redis:
+    image: redis:7-alpine
+    container_name: smr_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smr_network
+
+  # Message Queue - RabbitMQ
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: smr_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - smr_network
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: smr_prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - smr_network
+    depends_on:
+      - users-service
+      - rooms-service
+      - bookings-service
+      - reviews-service
+
+  # Visualization - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: smr_grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    networks:
+      - smr_network
+    depends_on:
+      - prometheus
+
+  # Users Service
+  users-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.users
+    container_name: smr_users_service
+    environment:
+      - DATABASE_URL=postgresql://admin:secure_password@postgres:5432/smartmeetingroom
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - USER_SERVICE_PORT=5001
+      - FLASK_ENV=development
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./services/users:/app/services/users
+      - ./database:/app/database
+      - ./utils:/app/utils
+      - ./configs:/app/configs
+    networks:
+      - smr_network
+    restart: unless-stopped
+
+  # Rooms Service
+  rooms-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.rooms
+    container_name: smr_rooms_service
+    environment:
+      - DATABASE_URL=postgresql://admin:secure_password@postgres:5432/smartmeetingroom
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - ROOM_SERVICE_PORT=5002
+      - FLASK_ENV=development
+    ports:
+      - "5002:5002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/rooms:/app/services/rooms
+      - ./database:/app/database
+      - ./utils:/app/utils
+      - ./configs:/app/configs
+    networks:
+      - smr_network
+    restart: unless-stopped
+
+  # Bookings Service
+  bookings-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.bookings
+    container_name: smr_bookings_service
+    environment:
+      - DATABASE_URL=postgresql://admin:secure_password@postgres:5432/smartmeetingroom
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - BOOKING_SERVICE_PORT=5003
+      - FLASK_ENV=development
+    ports:
+      - "5003:5003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./services/bookings:/app/services/bookings
+      - ./database:/app/database
+      - ./utils:/app/utils
+      - ./configs:/app/configs
+    networks:
+      - smr_network
+    restart: unless-stopped
+
+  # Reviews Service
+  reviews-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.reviews
+    container_name: smr_reviews_service
+    environment:
+      - DATABASE_URL=postgresql://admin:secure_password@postgres:5432/smartmeetingroom
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - REVIEW_SERVICE_PORT=5004
+      - FLASK_ENV=development
+    ports:
+      - "5004:5004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/reviews:/app/services/reviews
+      - ./database:/app/database
+      - ./utils:/app/utils
+      - ./configs:/app/configs
+    networks:
+      - smr_network
+    restart: unless-stopped
+
+networks:
+  smr_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
