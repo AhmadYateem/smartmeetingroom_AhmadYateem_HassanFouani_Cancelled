@@ -1,0 +1,50 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'smart-meeting-room'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'users-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['users-service:5001']
+        labels:
+          service: 'users'
+          team: 'yateem'
+
+  - job_name: 'rooms-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['rooms-service:5002']
+        labels:
+          service: 'rooms'
+          team: 'fouani'
+
+  - job_name: 'bookings-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['bookings-service:5003']
+        labels:
+          service: 'bookings'
+          team: 'yateem'
+
+  - job_name: 'reviews-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['reviews-service:5004']
+        labels:
+          service: 'reviews'
+          team: 'fouani'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  # - "alert_rules.yml"
